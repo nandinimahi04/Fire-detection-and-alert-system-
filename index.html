@@ -254,16 +254,21 @@ th{color:var(--blue)}
 /* =========================================================
    CONFIGURATION
    ========================================================= */
+
 const API_URL =
-  "https://script.google.com/macros/s/AKfycbxeJEkXs9qrKqdiLbWWjnyM0bBFQr-bNflN-5HhwfRrAx3s5obF1U-3bnFG5BDel_W1/exec";
+"https://script.google.com/macros/s/AKfycbzKZQJdE7VaFP_cmuv-86KGVsyP75GsZX953EraOLLi8cN2U01zrllo4YBG7aUePSD1/exec";
 
 const REFRESH_SECONDS = 5;
 const MAX_GRAPH_POINTS = 30;
 const OFFLINE_AFTER_SECONDS = 15;
 
+const CACHE_KEY = "smartFireLastFetchedData";
+
+
 /* =========================================================
    STATE
    ========================================================= */
+
 let allData = [];
 let previousStatus = null;
 let alarmEnabled = false;
@@ -271,424 +276,1379 @@ let audioContext = null;
 let countdownValue = REFRESH_SECONDS;
 let refreshTimer = null;
 
+
 /* =========================================================
    HELPERS
    ========================================================= */
+
 function num(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
 }
 
 function statusClass(status) {
-  return String(status || "NORMAL").toUpperCase();
+    return String(status || "NORMAL").toUpperCase();
 }
 
 function formatTime(value) {
-  if (!value) return "--";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleString();
+    if (!value) return "--";
+
+    const d = new Date(value);
+
+    if (Number.isNaN(d.getTime())) {
+        return String(value);
+    }
+
+    return d.toLocaleString();
 }
 
 function average(arr) {
-  if (!arr.length) return 0;
-  return arr.reduce((a,b)=>a+b,0) / arr.length;
+    if (!arr.length) return 0;
+
+    return arr.reduce((a, b) => a + b, 0) / arr.length;
 }
 
 function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#039;");
+    return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
 }
+
 
 /* =========================================================
-   LOAD DATA
+   LOCAL CACHE
    ========================================================= */
-async function loadData() {
-  try {
-    const response = await fetch(
-      API_URL + "?action=read&t=" + Date.now(),
-      { cache:"no-store" }
-    );
 
-    if (!response.ok) throw new Error("HTTP " + response.status);
+/*
+   Save the latest successfully fetched data.
+   This stays in the browser even if the API goes offline.
+*/
 
-    const result = await response.json();
+function saveLastFetchedData(data) {
 
-    if (!result.success) {
-      throw new Error(result.error || "API returned an error");
+    try {
+
+        localStorage.setItem(
+            CACHE_KEY,
+            JSON.stringify({
+                savedAt: Date.now(),
+                data: data
+            })
+        );
+
+    } catch (error) {
+
+        console.warn(
+            "Could not save cached data:",
+            error
+        );
+
     }
-
-    allData = Array.isArray(result.data) ? result.data : [];
-
-    if (!allData.length) {
-      setOffline(false);
-      document.getElementById("historyBody").innerHTML =
-        '<tr><td colspan="6" class="empty">No readings available yet.</td></tr>';
-      return;
-    }
-
-    allData = allData.map(row => ({
-      timestamp: row.timestamp,
-      device: row.device,
-      temperature: num(row.temperature),
-      humidity: num(row.humidity),
-      smoke: num(row.smoke),
-      flame: num(row.flame),
-      status: statusClass(row.status)
-    }));
-
-    const latest = allData[allData.length - 1];
-
-    updateDashboard(latest);
-    updateHistory();
-    updateStats();
-    updateChart();
-    setOffline(false);
-
-  } catch (error) {
-    console.error("Dashboard error:", error);
-    setOffline(true);
-  }
 }
+
+
+/*
+   Load the last successfully fetched data.
+*/
+
+function loadLastFetchedData() {
+
+    try {
+
+        const saved =
+            localStorage.getItem(CACHE_KEY);
+
+        if (!saved) {
+            return false;
+        }
+
+        const cached =
+            JSON.parse(saved);
+
+        if (
+            !cached ||
+            !Array.isArray(cached.data) ||
+            cached.data.length === 0
+        ) {
+            return false;
+        }
+
+
+        allData = cached.data.map(row => ({
+
+            timestamp: row.timestamp,
+
+            device: row.device,
+
+            temperature: num(row.temperature),
+
+            humidity: num(row.humidity),
+
+            smoke: num(row.smoke),
+
+            flame: num(row.flame),
+
+            status: statusClass(row.status)
+
+        }));
+
+
+        const latest =
+            allData[allData.length - 1];
+
+
+        /*
+           Display cached values.
+        */
+
+        updateDashboard(latest);
+
+        updateHistory();
+
+        updateStats();
+
+        updateChart();
+
+
+        /*
+           Tell the user these are cached values.
+        */
+
+        document
+            .getElementById("lastUpdate")
+            .textContent =
+                "Last fetched: " +
+                formatTime(latest.timestamp) +
+                " • Device: " +
+                (latest.device || "ESP32") +
+                " • Cached";
+
+
+        return true;
+
+
+    } catch (error) {
+
+        console.warn(
+            "Could not load cached data:",
+            error
+        );
+
+        return false;
+    }
+}
+
+
+/* =========================================================
+   OFFLINE STATUS
+   ========================================================= */
+
+function showOfflineWithLastData() {
+
+    const badge =
+        document.getElementById(
+            "connectionBadge"
+        );
+
+
+    badge.textContent =
+        "● OFFLINE • LAST DATA";
+
+
+    badge.classList.add("offline");
+
+
+    /*
+       IMPORTANT:
+       Do NOT clear the sensor values.
+       The last fetched values remain visible.
+    */
+}
+
+
+/* =========================================================
+   LOAD DATA FROM GOOGLE APPS SCRIPT
+   ========================================================= */
+
+async function loadData() {
+
+    try {
+
+        const response =
+            await fetch(
+                API_URL +
+                "?action=read&t=" +
+                Date.now(),
+                {
+                    cache: "no-store"
+                }
+            );
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                "HTTP " + response.status
+            );
+
+        }
+
+
+        const result =
+            await response.json();
+
+
+        if (!result.success) {
+
+            throw new Error(
+                result.error ||
+                "API returned an error"
+            );
+
+        }
+
+
+        /*
+           Make sure the API returned an array.
+        */
+
+        if (!Array.isArray(result.data)) {
+
+            throw new Error(
+                "Invalid data received from API"
+            );
+
+        }
+
+
+        /*
+           If API returned no data,
+           don't destroy the existing cached data.
+        */
+
+        if (result.data.length === 0) {
+
+            showOfflineWithLastData();
+
+            return;
+
+        }
+
+
+        /*
+           Convert values to numbers.
+        */
+
+        allData =
+            result.data.map(row => ({
+
+                timestamp:
+                    row.timestamp,
+
+                device:
+                    row.device,
+
+                temperature:
+                    num(row.temperature),
+
+                humidity:
+                    num(row.humidity),
+
+                smoke:
+                    num(row.smoke),
+
+                flame:
+                    num(row.flame),
+
+                status:
+                    statusClass(row.status)
+
+            }));
+
+
+        /*
+           SAVE SUCCESSFUL DATA
+           before doing anything else.
+        */
+
+        saveLastFetchedData(allData);
+
+
+        /*
+           Get newest reading.
+        */
+
+        const latest =
+            allData[allData.length - 1];
+
+
+        /*
+           Update dashboard.
+        */
+
+        updateDashboard(latest);
+
+        updateHistory();
+
+        updateStats();
+
+        updateChart();
+
+
+        /*
+           Connection is working.
+        */
+
+        setOffline(false);
+
+
+    } catch (error) {
+
+        console.error(
+            "Dashboard error:",
+            error
+        );
+
+
+        /*
+           API failed.
+
+           DO NOT replace values with "--".
+
+           First try browser cache.
+        */
+
+        const hasCachedData =
+            allData.length > 0 ||
+            loadLastFetchedData();
+
+
+        if (hasCachedData) {
+
+            showOfflineWithLastData();
+
+        } else {
+
+            /*
+               No previous data exists.
+               Only now show OFFLINE.
+            */
+
+            setOffline(true);
+
+        }
+
+    }
+}
+
 
 /* =========================================================
    DASHBOARD
    ========================================================= */
+
 function updateDashboard(data) {
-  const status = statusClass(data.status);
 
-  const statusEl = document.getElementById("systemStatus");
-  statusEl.textContent = status;
-  statusEl.className = "status-value " + status.toLowerCase();
+    if (!data) return;
 
-  document.getElementById("temperature").textContent =
-    data.temperature.toFixed(1) + " °C";
 
-  document.getElementById("humidity").textContent =
-    data.humidity.toFixed(1) + " %";
+    const status =
+        statusClass(data.status);
 
-  document.getElementById("smoke").textContent =
-    data.smoke.toFixed(0) + " %";
 
-  document.getElementById("flame").textContent =
-    data.flame.toFixed(0) + " %";
+    /*
+       SYSTEM STATUS
+    */
 
-  document.getElementById("lastUpdate").textContent =
-    "Last update: " + formatTime(data.timestamp) +
-    " • Device: " + (data.device || "ESP32");
+    const statusEl =
+        document.getElementById(
+            "systemStatus"
+        );
 
-  document.getElementById("statusIcon").textContent =
-    status === "FIRE" ? "🚨" :
-    status === "WARNING" ? "⚠️" : "✓";
 
-  if (previousStatus === null) {
-    previousStatus = status;
-  } else if (status === "FIRE" && previousStatus !== "FIRE") {
-    showFireAlert(data);
-  }
+    statusEl.textContent =
+        status;
 
-  previousStatus = status;
+
+    statusEl.className =
+        "status-value " +
+        status.toLowerCase();
+
+
+    /*
+       TEMPERATURE
+    */
+
+    document.getElementById(
+        "temperature"
+    ).textContent =
+        data.temperature.toFixed(1) +
+        " °C";
+
+
+    /*
+       HUMIDITY
+    */
+
+    document.getElementById(
+        "humidity"
+    ).textContent =
+        data.humidity.toFixed(1) +
+        " %";
+
+
+    /*
+       SMOKE
+    */
+
+    document.getElementById(
+        "smoke"
+    ).textContent =
+        data.smoke.toFixed(0) +
+        " %";
+
+
+    /*
+       FLAME
+    */
+
+    document.getElementById(
+        "flame"
+    ).textContent =
+        data.flame.toFixed(0) +
+        " %";
+
+
+    /*
+       LAST UPDATE
+    */
+
+    document.getElementById(
+        "lastUpdate"
+    ).textContent =
+        "Last update: " +
+        formatTime(data.timestamp) +
+        " • Device: " +
+        (data.device || "ESP32");
+
+
+    /*
+       ICON
+    */
+
+    document.getElementById(
+        "statusIcon"
+    ).textContent =
+        status === "FIRE"
+            ? "🚨"
+            : status === "WARNING"
+            ? "⚠️"
+            : "✓";
+
+
+    /*
+       FIRE ALERT
+    */
+
+    if (
+        previousStatus === null
+    ) {
+
+        previousStatus =
+            status;
+
+    }
+
+    else if (
+        status === "FIRE" &&
+        previousStatus !== "FIRE"
+    ) {
+
+        showFireAlert(data);
+
+    }
+
+
+    previousStatus =
+        status;
 }
+
 
 /* =========================================================
    CONNECTION
    ========================================================= */
-function setOffline(isOffline) {
-  const badge = document.getElementById("connectionBadge");
 
-  if (isOffline) {
-    badge.textContent = "● OFFLINE";
-    badge.classList.add("offline");
-  } else {
-    badge.textContent = "● LIVE";
-    badge.classList.remove("offline");
-  }
+function setOffline(isOffline) {
+
+    const badge =
+        document.getElementById(
+            "connectionBadge"
+        );
+
+
+    if (isOffline) {
+
+        badge.textContent =
+            "● OFFLINE";
+
+        badge.classList.add(
+            "offline"
+        );
+
+    } else {
+
+        badge.textContent =
+            "● LIVE";
+
+        badge.classList.remove(
+            "offline"
+        );
+
+    }
 }
+
 
 /* =========================================================
    HISTORY
    ========================================================= */
+
 function updateHistory() {
-  const body = document.getElementById("historyBody");
 
-  const rows = [...allData].reverse();
+    const body =
+        document.getElementById(
+            "historyBody"
+        );
 
-  body.innerHTML = rows.map(row => `
-    <tr>
-      <td>${escapeHtml(formatTime(row.timestamp))}</td>
-      <td>${row.temperature.toFixed(1)} °C</td>
-      <td>${row.humidity.toFixed(1)}%</td>
-      <td>${row.smoke.toFixed(0)}%</td>
-      <td>${row.flame.toFixed(0)}%</td>
-      <td><span class="status-pill ${row.status}">${row.status}</span></td>
-    </tr>
-  `).join("");
+
+    const rows =
+        [...allData].reverse();
+
+
+    body.innerHTML =
+        rows.map(row => `
+
+            <tr>
+
+                <td>
+                    ${escapeHtml(
+                        formatTime(
+                            row.timestamp
+                        )
+                    )}
+                </td>
+
+                <td>
+                    ${row.temperature.toFixed(1)} °C
+                </td>
+
+                <td>
+                    ${row.humidity.toFixed(1)}%
+                </td>
+
+                <td>
+                    ${row.smoke.toFixed(0)}%
+                </td>
+
+                <td>
+                    ${row.flame.toFixed(0)}%
+                </td>
+
+                <td>
+                    <span class="status-pill ${row.status}">
+                        ${row.status}
+                    </span>
+                </td>
+
+            </tr>
+
+        `).join("");
 }
+
 
 /* =========================================================
    STATISTICS
    ========================================================= */
+
 function updateStats() {
-  const temps = allData.map(x=>x.temperature);
-  const smokes = allData.map(x=>x.smoke);
-  const flames = allData.map(x=>x.flame);
 
-  document.getElementById("avgTemp").textContent =
-    average(temps).toFixed(1) + " °C";
-  document.getElementById("maxTemp").textContent =
-    Math.max(...temps).toFixed(1) + " °C";
+    if (!allData.length) return;
 
-  document.getElementById("avgSmoke").textContent =
-    average(smokes).toFixed(1) + " %";
-  document.getElementById("maxSmoke").textContent =
-    Math.max(...smokes).toFixed(0) + " %";
 
-  document.getElementById("avgFlame").textContent =
-    average(flames).toFixed(1) + " %";
-  document.getElementById("maxFlame").textContent =
-    Math.max(...flames).toFixed(0) + " %";
+    const temps =
+        allData.map(
+            x => x.temperature
+        );
 
-  /*
-    Fire event = transition into FIRE.
-    This prevents one FIRE reading every 5 seconds
-    from being counted as hundreds of fires.
-  */
-  let events = 0;
-  let last = null;
+    const smokes =
+        allData.map(
+            x => x.smoke
+        );
 
-  for (const row of allData) {
-    if (row.status === "FIRE" && last !== "FIRE") events++;
-    last = row.status;
-  }
+    const flames =
+        allData.map(
+            x => x.flame
+        );
 
-  document.getElementById("fireCount").textContent = events;
+
+    document.getElementById(
+        "avgTemp"
+    ).textContent =
+        average(temps).toFixed(1) +
+        " °C";
+
+
+    document.getElementById(
+        "maxTemp"
+    ).textContent =
+        Math.max(...temps).toFixed(1) +
+        " °C";
+
+
+    document.getElementById(
+        "avgSmoke"
+    ).textContent =
+        average(smokes).toFixed(1) +
+        " %";
+
+
+    document.getElementById(
+        "maxSmoke"
+    ).textContent =
+        Math.max(...smokes).toFixed(0) +
+        " %";
+
+
+    document.getElementById(
+        "avgFlame"
+    ).textContent =
+        average(flames).toFixed(1) +
+        " %";
+
+
+    document.getElementById(
+        "maxFlame"
+    ).textContent =
+        Math.max(...flames).toFixed(0) +
+        " %";
 }
+
+
+/* =========================================================
+   FIRE EVENT COUNTER
+   ========================================================= */
+
+function updateFireCount() {
+
+    let events = 0;
+
+    let last = null;
+
+
+    for (
+        const row of allData
+    ) {
+
+        if (
+            row.status === "FIRE" &&
+            last !== "FIRE"
+        ) {
+
+            events++;
+
+        }
+
+        last =
+            row.status;
+    }
+
+
+    document.getElementById(
+        "fireCount"
+    ).textContent =
+        events;
+}
+
 
 /* =========================================================
    CANVAS GRAPH
    ========================================================= */
+
 function updateChart() {
-  const canvas = document.getElementById("sensorChart");
-  const rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
 
-  canvas.width = rect.width * dpr;
-  canvas.height = rect.height * dpr;
+    const canvas =
+        document.getElementById(
+            "sensorChart"
+        );
 
-  const ctx = canvas.getContext("2d");
-  ctx.scale(dpr,dpr);
 
-  const width = rect.width;
-  const height = rect.height;
+    const rect =
+        canvas.getBoundingClientRect();
 
-  ctx.clearRect(0,0,width,height);
 
-  const data = allData.slice(-MAX_GRAPH_POINTS);
+    const dpr =
+        window.devicePixelRatio || 1;
 
-  if (!data.length) return;
 
-  const left = 48, right = 15, top = 20, bottom = 35;
-  const w = width-left-right;
-  const h = height-top-bottom;
+    canvas.width =
+        rect.width * dpr;
 
-  const maxValue = 100;
-  const minValue = 0;
 
-  ctx.strokeStyle = "#334155";
-  ctx.lineWidth = 1;
+    canvas.height =
+        rect.height * dpr;
 
-  for(let i=0;i<=5;i++){
-    const y = top + (h*i/5);
-    ctx.beginPath();
-    ctx.moveTo(left,y);
-    ctx.lineTo(width-right,y);
-    ctx.stroke();
 
-    ctx.fillStyle="#94a3b8";
-    ctx.font="12px Segoe UI";
-    ctx.fillText(String(100-i*20),8,y+4);
-  }
+    const ctx =
+        canvas.getContext("2d");
 
-  function drawLine(key, color) {
-    if (data.length === 1) return;
 
-    ctx.strokeStyle=color;
-    ctx.lineWidth=3;
-    ctx.beginPath();
+    ctx.setTransform(
+        dpr,
+        0,
+        0,
+        dpr,
+        0,
+        0
+    );
 
-    data.forEach((row,i)=>{
-      const x = left + (w * i / Math.max(1,data.length-1));
-      const value = Math.max(minValue,Math.min(maxValue,num(row[key])));
-      const y = top + h - ((value-minValue)/(maxValue-minValue))*h;
 
-      if(i===0) ctx.moveTo(x,y);
-      else ctx.lineTo(x,y);
-    });
+    const width =
+        rect.width;
 
-    ctx.stroke();
-  }
 
-  drawLine("temperature","#60a5fa");
-  drawLine("smoke","#facc15");
-  drawLine("flame","#fb923c");
+    const height =
+        rect.height;
 
-  ctx.fillStyle="#94a3b8";
-  ctx.font="11px Segoe UI";
-  ctx.fillText("0",left,height-10);
-  ctx.fillText(String(data.length)+" readings",width-90,height-10);
+
+    ctx.clearRect(
+        0,
+        0,
+        width,
+        height
+    );
+
+
+    const data =
+        allData.slice(
+            -MAX_GRAPH_POINTS
+        );
+
+
+    if (!data.length) return;
+
+
+    const left = 48;
+
+    const right = 15;
+
+    const top = 20;
+
+    const bottom = 35;
+
+
+    const w =
+        width - left - right;
+
+
+    const h =
+        height - top - bottom;
+
+
+    const maxValue = 100;
+
+    const minValue = 0;
+
+
+    /*
+       GRID
+    */
+
+    ctx.strokeStyle =
+        "#334155";
+
+    ctx.lineWidth = 1;
+
+
+    for (
+        let i = 0;
+        i <= 5;
+        i++
+    ) {
+
+        const y =
+            top + (h * i / 5);
+
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            left,
+            y
+        );
+
+        ctx.lineTo(
+            width - right,
+            y
+        );
+
+        ctx.stroke();
+
+
+        ctx.fillStyle =
+            "#94a3b8";
+
+        ctx.font =
+            "12px Segoe UI";
+
+
+        ctx.fillText(
+            String(100 - i * 20),
+            8,
+            y + 4
+        );
+    }
+
+
+    /*
+       DRAW LINE
+    */
+
+    function drawLine(
+        key,
+        color
+    ) {
+
+        if (data.length === 1)
+            return;
+
+
+        ctx.strokeStyle =
+            color;
+
+        ctx.lineWidth = 3;
+
+        ctx.beginPath();
+
+
+        data.forEach(
+            (row, i) => {
+
+                const x =
+                    left +
+                    (
+                        w * i /
+                        Math.max(
+                            1,
+                            data.length - 1
+                        )
+                    );
+
+
+                const value =
+                    Math.max(
+                        minValue,
+                        Math.min(
+                            maxValue,
+                            num(row[key])
+                        )
+                    );
+
+
+                const y =
+                    top +
+                    h -
+                    (
+                        (
+                            value -
+                            minValue
+                        ) /
+                        (
+                            maxValue -
+                            minValue
+                        )
+                    ) *
+                    h;
+
+
+                if (i === 0) {
+
+                    ctx.moveTo(
+                        x,
+                        y
+                    );
+
+                } else {
+
+                    ctx.lineTo(
+                        x,
+                        y
+                    );
+
+                }
+
+            }
+        );
+
+
+        ctx.stroke();
+    }
+
+
+    drawLine(
+        "temperature",
+        "#60a5fa"
+    );
+
+    drawLine(
+        "smoke",
+        "#facc15"
+    );
+
+    drawLine(
+        "flame",
+        "#fb923c"
+    );
+
+
+    ctx.fillStyle =
+        "#94a3b8";
+
+    ctx.font =
+        "11px Segoe UI";
+
+
+    ctx.fillText(
+        "0",
+        left,
+        height - 10
+    );
+
+
+    ctx.fillText(
+        data.length +
+        " readings",
+        width - 90,
+        height - 10
+    );
 }
 
-window.addEventListener("resize", updateChart);
+
+window.addEventListener(
+    "resize",
+    updateChart
+);
+
 
 /* =========================================================
    FIRE ALERT + SOUND
    ========================================================= */
+
 function showFireAlert(data) {
-  document.getElementById("alertMessage").textContent =
-    "Temperature: " + data.temperature.toFixed(1) +
-    " °C • Smoke: " + data.smoke.toFixed(0) +
-    "% • Flame: " + data.flame.toFixed(0) + "%";
 
-  document.getElementById("fireModal").classList.add("show");
+    document.getElementById(
+        "alertMessage"
+    ).textContent =
 
-  if (alarmEnabled) playAlarm();
+        "Temperature: " +
+        data.temperature.toFixed(1) +
+
+        " °C • Smoke: " +
+        data.smoke.toFixed(0) +
+
+        "% • Flame: " +
+        data.flame.toFixed(0) +
+        "%";
+
+
+    document.getElementById(
+        "fireModal"
+    ).classList.add("show");
+
+
+    if (alarmEnabled) {
+
+        playAlarm();
+
+    }
 }
+
 
 function closeAlert() {
-  document.getElementById("fireModal").classList.remove("show");
+
+    document.getElementById(
+        "fireModal"
+    ).classList.remove(
+        "show"
+    );
 }
+
 
 function enableAlarm() {
-  try {
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    alarmEnabled = true;
-    document.getElementById("soundBtn").textContent = "🔔 Alarm sound enabled";
-    document.getElementById("soundBtn").classList.add("success");
-    playBeep();
-  } catch(e) {
-    alert("Your browser does not support Web Audio.");
-  }
+
+    try {
+
+        audioContext =
+            new (
+                window.AudioContext ||
+                window.webkitAudioContext
+            )();
+
+
+        alarmEnabled = true;
+
+
+        document.getElementById(
+            "soundBtn"
+        ).textContent =
+            "🔔 Alarm sound enabled";
+
+
+        document.getElementById(
+            "soundBtn"
+        ).classList.add(
+            "success"
+        );
+
+
+        playBeep();
+
+
+    } catch (e) {
+
+        alert(
+            "Your browser does not support Web Audio."
+        );
+
+    }
 }
+
 
 function playBeep() {
-  if (!audioContext) return;
 
-  const oscillator = audioContext.createOscillator();
-  const gain = audioContext.createGain();
+    if (!audioContext)
+        return;
 
-  oscillator.frequency.value = 1000;
-  oscillator.type = "square";
-  gain.gain.value = 0.12;
 
-  oscillator.connect(gain);
-  gain.connect(audioContext.destination);
+    const oscillator =
+        audioContext.createOscillator();
 
-  oscillator.start();
-  oscillator.stop(audioContext.currentTime + 0.25);
+
+    const gain =
+        audioContext.createGain();
+
+
+    oscillator.frequency.value =
+        1000;
+
+
+    oscillator.type =
+        "square";
+
+
+    gain.gain.value =
+        0.12;
+
+
+    oscillator.connect(gain);
+
+    gain.connect(
+        audioContext.destination
+    );
+
+
+    oscillator.start();
+
+
+    oscillator.stop(
+        audioContext.currentTime +
+        0.25
+    );
 }
+
 
 function playAlarm() {
-  if (!alarmEnabled || !audioContext) return;
 
-  let count = 0;
-  const timer = setInterval(()=>{
-    playBeep();
-    count++;
-    if(count >= 5) clearInterval(timer);
-  },350);
+    if (
+        !alarmEnabled ||
+        !audioContext
+    ) {
+        return;
+    }
+
+
+    let count = 0;
+
+
+    const timer =
+        setInterval(() => {
+
+            playBeep();
+
+            count++;
+
+
+            if (count >= 5) {
+
+                clearInterval(
+                    timer
+                );
+
+            }
+
+        }, 350);
 }
 
-document.getElementById("soundBtn").addEventListener("click", enableAlarm);
+
+document
+    .getElementById("soundBtn")
+    .addEventListener(
+        "click",
+        enableAlarm
+    );
+
 
 /* =========================================================
    CSV EXPORT
    ========================================================= */
-function downloadCSV() {
-  if (!allData.length) {
-    alert("No readings available.");
-    return;
-  }
-
-  const header = [
-    "Timestamp","Device","Temperature","Humidity",
-    "Smoke","Flame","Status"
-  ];
-
-  const lines = [header.join(",")];
-
-  allData.forEach(row=>{
-    lines.push([
-      csvCell(row.timestamp),
-      csvCell(row.device),
-      row.temperature,
-      row.humidity,
-      row.smoke,
-      row.flame,
-      csvCell(row.status)
-    ].join(","));
-  });
-
-  const blob = new Blob(
-    ["\ufeff" + lines.join("\n")],
-    {type:"text/csv;charset=utf-8;"}
-  );
-
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-
-  a.href=url;
-  a.download="smart-fire-readings.csv";
-  a.click();
-
-  URL.revokeObjectURL(url);
-}
 
 function csvCell(value) {
-  return '"' + String(value ?? "").replaceAll('"','""') + '"';
+
+    return '"' +
+        String(
+            value ?? ""
+        ).replaceAll(
+            '"',
+            '""'
+        ) +
+        '"';
 }
 
-document.getElementById("csvBtn").addEventListener("click",downloadCSV);
+
+function downloadCSV() {
+
+    if (!allData.length) {
+
+        alert(
+            "No readings available."
+        );
+
+        return;
+    }
+
+
+    const header = [
+
+        "Timestamp",
+
+        "Device",
+
+        "Temperature",
+
+        "Humidity",
+
+        "Smoke",
+
+        "Flame",
+
+        "Status"
+
+    ];
+
+
+    const lines = [
+        header.join(",")
+    ];
+
+
+    allData.forEach(
+        row => {
+
+            lines.push([
+
+                csvCell(
+                    row.timestamp
+                ),
+
+                csvCell(
+                    row.device
+                ),
+
+                row.temperature,
+
+                row.humidity,
+
+                row.smoke,
+
+                row.flame,
+
+                csvCell(
+                    row.status
+                )
+
+            ].join(","));
+
+        }
+    );
+
+
+    const blob =
+        new Blob(
+            [
+                "\ufeff" +
+                lines.join("\n")
+            ],
+            {
+                type:
+                    "text/csv;charset=utf-8;"
+            }
+        );
+
+
+    const url =
+        URL.createObjectURL(
+            blob
+        );
+
+
+    const a =
+        document.createElement(
+            "a"
+        );
+
+
+    a.href =
+        url;
+
+
+    a.download =
+        "smart-fire-readings.csv";
+
+
+    a.click();
+
+
+    URL.revokeObjectURL(
+        url
+    );
+}
+
+
+document
+    .getElementById("csvBtn")
+    .addEventListener(
+        "click",
+        downloadCSV
+    );
+
 
 /* =========================================================
    CONTROLS
    ========================================================= */
-document.getElementById("refreshBtn").addEventListener("click",()=>{
-  countdownValue = REFRESH_SECONDS;
-  loadData();
-});
 
-document.getElementById("historyBtn").addEventListener("click",()=>{
-  document.getElementById("historySection")
-    .scrollIntoView({behavior:"smooth"});
-});
+document
+    .getElementById("refreshBtn")
+    .addEventListener(
+        "click",
+        () => {
 
-function startRefreshLoop() {
-  if (refreshTimer) clearInterval(refreshTimer);
+            countdownValue =
+                REFRESH_SECONDS;
 
-  countdownValue = REFRESH_SECONDS;
+            loadData();
 
-  refreshTimer = setInterval(()=>{
-    countdownValue--;
+        }
+    );
 
-    if(countdownValue <= 0){
-      countdownValue = REFRESH_SECONDS;
-      loadData();
-    }
 
-    document.getElementById("countdown").textContent =
-      "Next refresh: " + countdownValue + "s";
-  },1000);
-}
+document
+    .getElementById("historyBtn")
+    .addEventListener(
+        "click",
+        () => {
+
+            document
+                .getElementById(
+                    "historySection"
+                )
+                .scrollIntoView({
+                    behavior:
+                        "smooth"
+                });
+
+        }
+    );
+
 
 /* =========================================================
-   START
+   REFRESH LOOP
    ========================================================= */
+
+function startRefreshLoop() {
+
+    if (refreshTimer) {
+
+        clearInterval(
+            refreshTimer
+        );
+
+    }
+
+
+    countdownValue =
+        REFRESH_SECONDS;
+
+
+    refreshTimer =
+        setInterval(
+            () => {
+
+                countdownValue--;
+
+
+                if (
+                    countdownValue <= 0
+                ) {
+
+                    countdownValue =
+                        REFRESH_SECONDS;
+
+                    loadData();
+
+                }
+
+
+                document
+                    .getElementById(
+                        "countdown"
+                    )
+                    .textContent =
+                        "Next refresh: " +
+                        countdownValue +
+                        "s";
+
+            },
+            1000
+        );
+}
+
+
+/* =========================================================
+   START DASHBOARD
+   ========================================================= */
+
+/*
+   IMPORTANT:
+   First restore the last known values.
+   Then try the live API.
+*/
+
+loadLastFetchedData();
+
 loadData();
+
 startRefreshLoop();
+
 </script>
 </body>
 </html>
