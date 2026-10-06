@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Fire Detection</title>
+<style>
+:root{
+  --bg:#0f172a;
+  --panel:#1e293b;
+  --panel2:#111827;
+  --border:#334155;
+  --text:#f8fafc;
+  --muted:#94a3b8;
+  --green:#4ade80;
+  --yellow:#facc15;
+  --red:#ef4444;
+  --blue:#60a5fa;
+  --orange:#fb923c;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family:Inter,Segoe UI,Arial,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+}
+.header{
+  border-bottom:1px solid var(--border);
+  padding:28px clamp(20px,6vw,110px);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:20px;
+}
+.brand h1{margin:0;font-size:32px}
+.brand p{margin:8px 0 0;color:var(--blue);font-size:18px}
+.badge{
+  padding:12px 20px;border-radius:28px;font-weight:700;
+  background:#166534;color:#dcfce7;white-space:nowrap
+}
+.badge.offline{background:#991b1b;color:#fee2e2}
+.container{max-width:1400px;margin:auto;padding:36px 24px 60px}
+.status-card,.card{
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:22px;
+  box-shadow:0 10px 30px rgba(0,0,0,.12);
+}
+.status-card{
+  padding:32px;display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:28px
+}
+.status-label{color:var(--blue);letter-spacing:2px;font-size:14px}
+.status-value{font-size:40px;font-weight:800;margin-top:10px}
+.status-icon{font-size:52px}
+.normal{color:var(--green)} .warning{color:var(--yellow)} .fire{color:var(--red)}
+.metrics{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:20px
+}
+.metric{padding:28px}
+.metric-title{color:var(--muted);font-size:18px}
+.metric-value{font-size:30px;font-weight:800;margin-top:12px}
+.metric-icon{font-size:32px;float:left;margin-right:16px}
+.update{
+  margin:24px 0;padding:18px 20px;background:var(--panel);
+  border-radius:16px;color:var(--blue)
+}
+.controls{
+  display:flex;flex-wrap:wrap;gap:12px;margin:24px 0
+}
+button{
+  border:1px solid var(--border);background:#263449;color:white;
+  padding:12px 17px;border-radius:10px;font-weight:700;cursor:pointer
+}
+button:hover{filter:brightness(1.15)}
+button.primary{background:#2563eb;border-color:#2563eb}
+button.danger{background:#991b1b;border-color:#991b1b}
+button.success{background:#166534;border-color:#166534}
+.card{padding:28px;margin-top:24px}
+.card h2{margin:0 0 20px;font-size:25px}
+.chart-wrap{height:330px;position:relative}
+canvas{width:100%;height:100%;display:block}
+.legend{display:flex;gap:20px;flex-wrap:wrap;color:var(--muted);margin-top:12px}
+.legend span:before{
+  content:"";display:inline-block;width:12px;height:12px;border-radius:50%;
+  margin-right:7px
+}
+.legend .temp:before{background:#60a5fa}
+.legend .smoke:before{background:#facc15}
+.legend .flame:before{background:#fb923c}
+.stats{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:16px
+}
+.stat{
+  background:#162033;border:1px solid var(--border);border-radius:14px;padding:18px
+}
+.stat small{color:var(--muted);display:block;margin-bottom:7px}
+.stat strong{font-size:24px}
+.table-wrap{overflow:auto}
+table{width:100%;border-collapse:collapse;min-width:700px}
+th,td{text-align:left;padding:15px;border-bottom:1px solid var(--border)}
+th{color:var(--blue)}
+.status-pill{
+  display:inline-block;padding:5px 11px;border-radius:20px;font-weight:800;font-size:12px
+}
+.status-pill.NORMAL{background:#14532d;color:#86efac}
+.status-pill.WARNING{background:#713f12;color:#fde047}
+.status-pill.FIRE{background:#7f1d1d;color:#fca5a5}
+.empty{text-align:center;color:var(--muted);padding:30px}
+.footer{text-align:center;color:#64748b;margin-top:35px}
+.modal{
+  position:fixed;inset:0;background:rgba(0,0,0,.78);
+  display:none;align-items:center;justify-content:center;z-index:1000;padding:20px
+}
+.modal.show{display:flex}
+.alert-box{
+  width:min(620px,100%);background:#450a0a;border:3px solid var(--red);
+  border-radius:24px;padding:38px;text-align:center;
+  box-shadow:0 0 70px rgba(239,68,68,.4)
+}
+.alert-box h2{font-size:52px;color:#fca5a5;margin:5px 0 15px}
+.alert-box p{font-size:20px;color:#fee2e2}
+.alert-close{margin-top:15px;background:#dc2626}
+.countdown{color:var(--muted);font-size:14px;margin-left:auto}
+@media(max-width:900px){
+  .metrics{grid-template-columns:repeat(2,1fr)}
+  .stats{grid-template-columns:1fr 1fr}
+  .header{padding:22px}
+}
+@media(max-width:600px){
+  .brand h1{font-size:25px}.brand p{font-size:15px}
+  .header{align-items:flex-start}.badge{padding:9px 12px}
+  .container{padding:22px 14px 45px}
+  .status-card{padding:22px}.status-value{font-size:32px}
+  .metrics{grid-template-columns:1fr}
+  .stats{grid-template-columns:1fr}
+  .metric{padding:22px}
+  .card{padding:20px}
+  .chart-wrap{height:260px}
+}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="brand">
+    <h1>🔥 Smart Fire Detection</h1>
+    <p>IoT Monitoring Dashboard</p>
+  </div>
+  <div id="connectionBadge" class="badge offline">● OFFLINE</div>
+</header>
+
+<main class="container">
+
+  <section class="status-card">
+    <div>
+      <div class="status-label">SYSTEM STATUS</div>
+      <div id="systemStatus" class="status-value">LOADING...</div>
+    </div>
+    <div id="statusIcon" class="status-icon">⌛</div>
+  </section>
+
+  <section class="metrics">
+    <div class="card metric">
+      <span class="metric-icon">🌡️</span>
+      <div class="metric-title">Temperature</div>
+      <div id="temperature" class="metric-value">-- °C</div>
+    </div>
+    <div class="card metric">
+      <span class="metric-icon">💧</span>
+      <div class="metric-title">Humidity</div>
+      <div id="humidity" class="metric-value">-- %</div>
+    </div>
+    <div class="card metric">
+      <span class="metric-icon">💨</span>
+      <div class="metric-title">Smoke Level</div>
+      <div id="smoke" class="metric-value">-- %</div>
+    </div>
+    <div class="card metric">
+      <span class="metric-icon">🔥</span>
+      <div class="metric-title">Flame Level</div>
+      <div id="flame" class="metric-value">-- %</div>
+    </div>
+  </section>
+
+  <div id="lastUpdate" class="update">Last update: --</div>
+
+  <div class="controls">
+    <button class="primary" id="refreshBtn">🔄 Refresh now</button>
+    <button id="soundBtn">🔔 Enable alarm sound</button>
+    <button class="success" id="csvBtn">📥 Download CSV</button>
+    <button id="historyBtn">🕒 Full history</button>
+    <span id="countdown" class="countdown">Next refresh: --</span>
+  </div>
+
+  <section class="card">
+    <h2>📈 Live Sensor Graphs</h2>
+    <div class="chart-wrap"><canvas id="sensorChart"></canvas></div>
+    <div class="legend">
+      <span class="temp">Temperature</span>
+      <span class="smoke">Smoke</span>
+      <span class="flame">Flame</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>📊 Statistics</h2>
+    <div class="stats">
+      <div class="stat"><small>Average Temperature</small><strong id="avgTemp">--</strong></div>
+      <div class="stat"><small>Maximum Temperature</small><strong id="maxTemp">--</strong></div>
+      <div class="stat"><small>Average Smoke</small><strong id="avgSmoke">--</strong></div>
+      <div class="stat"><small>Maximum Smoke</small><strong id="maxSmoke">--</strong></div>
+      <div class="stat"><small>Average Flame</small><strong id="avgFlame">--</strong></div>
+      <div class="stat"><small>Maximum Flame</small><strong id="maxFlame">--</strong></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>🔥 Fire Events: <span id="fireCount">0</span></h2>
+    <p style="color:var(--muted);margin-top:-8px">Counted when the system changes into FIRE state.</p>
+  </section>
+
+  <section class="card" id="historySection">
+    <h2>Alert History</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th><th>Temperature</th><th>Humidity</th>
+            <th>Smoke</th><th>Flame</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody">
+          <tr><td colspan="6" class="empty">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="footer">ESP32 • Wokwi • Google Sheets • IoT Dashboard</div>
+</main>
+
+<div id="fireModal" class="modal">
+  <div class="alert-box">
+    <div style="font-size:70px">🚨🔥</div>
+    <h2>FIRE ALERT</h2>
+    <p id="alertMessage">Danger detected by the monitoring system.</p>
+    <button class="alert-close" onclick="closeAlert()">Acknowledge Alert</button>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   CONFIGURATION
+   ========================================================= */
+const API_URL =
+  "https://script.google.com/macros/s/AKfycbxeJEkXs9qrKqdiLbWWjnyM0bBFQr-bNflN-5HhwfRrAx3s5obF1U-3bnFG5BDel_W1/exec";
+
+const REFRESH_SECONDS = 5;
+const MAX_GRAPH_POINTS = 30;
+const OFFLINE_AFTER_SECONDS = 15;
+
+/* =========================================================
+   STATE
+   ========================================================= */
+let allData = [];
+let previousStatus = null;
+let alarmEnabled = false;
+let audioContext = null;
+let countdownValue = REFRESH_SECONDS;
+let refreshTimer = null;
+
+/* =========================================================
+   HELPERS
+   ========================================================= */
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function statusClass(status) {
+  return String(status || "NORMAL").toUpperCase();
+}
+
+function formatTime(value) {
+  if (!value) return "--";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString();
+}
+
+function average(arr) {
+  if (!arr.length) return 0;
+  return arr.reduce((a,b)=>a+b,0) / arr.length;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
+
+/* =========================================================
+   LOAD DATA
+   ========================================================= */
+async function loadData() {
+  try {
+    const response = await fetch(
+      API_URL + "?action=read&t=" + Date.now(),
+      { cache:"no-store" }
+    );
+
+    if (!response.ok) throw new Error("HTTP " + response.status);
+
+    const result = await response.json();
+
+    if (!result.success) {
+      throw new Error(result.error || "API returned an error");
+    }
+
+    allData = Array.isArray(result.data) ? result.data : [];
+
+    if (!allData.length) {
+      setOffline(false);
+      document.getElementById("historyBody").innerHTML =
+        '<tr><td colspan="6" class="empty">No readings available yet.</td></tr>';
+      return;
+    }
+
+    allData = allData.map(row => ({
+      timestamp: row.timestamp,
+      device: row.device,
+      temperature: num(row.temperature),
+      humidity: num(row.humidity),
+      smoke: num(row.smoke),
+      flame: num(row.flame),
+      status: statusClass(row.status)
+    }));
+
+    const latest = allData[allData.length - 1];
+
+    updateDashboard(latest);
+    updateHistory();
+    updateStats();
+    updateChart();
+    setOffline(false);
+
+  } catch (error) {
+    console.error("Dashboard error:", error);
+    setOffline(true);
+  }
+}
+
+/* =========================================================
+   DASHBOARD
+   ========================================================= */
+function updateDashboard(data) {
+  const status = statusClass(data.status);
+
+  const statusEl = document.getElementById("systemStatus");
+  statusEl.textContent = status;
+  statusEl.className = "status-value " + status.toLowerCase();
+
+  document.getElementById("temperature").textContent =
+    data.temperature.toFixed(1) + " °C";
+
+  document.getElementById("humidity").textContent =
+    data.humidity.toFixed(1) + " %";
+
+  document.getElementById("smoke").textContent =
+    data.smoke.toFixed(0) + " %";
+
+  document.getElementById("flame").textContent =
+    data.flame.toFixed(0) + " %";
+
+  document.getElementById("lastUpdate").textContent =
+    "Last update: " + formatTime(data.timestamp) +
+    " • Device: " + (data.device || "ESP32");
+
+  document.getElementById("statusIcon").textContent =
+    status === "FIRE" ? "🚨" :
+    status === "WARNING" ? "⚠️" : "✓";
+
+  if (previousStatus === null) {
+    previousStatus = status;
+  } else if (status === "FIRE" && previousStatus !== "FIRE") {
+    showFireAlert(data);
+  }
+
+  previousStatus = status;
+}
+
+/* =========================================================
+   CONNECTION
+   ========================================================= */
+function setOffline(isOffline) {
+  const badge = document.getElementById("connectionBadge");
+
+  if (isOffline) {
+    badge.textContent = "● OFFLINE";
+    badge.classList.add("offline");
+  } else {
+    badge.textContent = "● LIVE";
+    badge.classList.remove("offline");
+  }
+}
+
+/* =========================================================
+   HISTORY
+   ========================================================= */
+function updateHistory() {
+  const body = document.getElementById("historyBody");
+
+  const rows = [...allData].reverse();
+
+  body.innerHTML = rows.map(row => `
+    <tr>
+      <td>${escapeHtml(formatTime(row.timestamp))}</td>
+      <td>${row.temperature.toFixed(1)} °C</td>
+      <td>${row.humidity.toFixed(1)}%</td>
+      <td>${row.smoke.toFixed(0)}%</td>
+      <td>${row.flame.toFixed(0)}%</td>
+      <td><span class="status-pill ${row.status}">${row.status}</span></td>
+    </tr>
+  `).join("");
+}
+
+/* =========================================================
+   STATISTICS
+   ========================================================= */
+function updateStats() {
+  const temps = allData.map(x=>x.temperature);
+  const smokes = allData.map(x=>x.smoke);
+  const flames = allData.map(x=>x.flame);
+
+  document.getElementById("avgTemp").textContent =
+    average(temps).toFixed(1) + " °C";
+  document.getElementById("maxTemp").textContent =
+    Math.max(...temps).toFixed(1) + " °C";
+
+  document.getElementById("avgSmoke").textContent =
+    average(smokes).toFixed(1) + " %";
+  document.getElementById("maxSmoke").textContent =
+    Math.max(...smokes).toFixed(0) + " %";
+
+  document.getElementById("avgFlame").textContent =
+    average(flames).toFixed(1) + " %";
+  document.getElementById("maxFlame").textContent =
+    Math.max(...flames).toFixed(0) + " %";
+
+  /*
+    Fire event = transition into FIRE.
+    This prevents one FIRE reading every 5 seconds
+    from being counted as hundreds of fires.
+  */
+  let events = 0;
+  let last = null;
+
+  for (const row of allData) {
+    if (row.status === "FIRE" && last !== "FIRE") events++;
+    last = row.status;
+  }
+
+  document.getElementById("fireCount").textContent = events;
+}
+
+/* =========================================================
+   CANVAS GRAPH
+   ========================================================= */
+function updateChart() {
+  const canvas = document.getElementById("sensorChart");
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr,dpr);
+
+  const width = rect.width;
+  const height = rect.height;
+
+  ctx.clearRect(0,0,width,height);
+
+  const data = allData.slice(-MAX_GRAPH_POINTS);
+
+  if (!data.length) return;
+
+  const left = 48, right = 15, top = 20, bottom = 35;
+  const w = width-left-right;
+  const h = height-top-bottom;
+
+  const maxValue = 100;
+  const minValue = 0;
+
+  ctx.strokeStyle = "#334155";
+  ctx.lineWidth = 1;
+
+  for(let i=0;i<=5;i++){
+    const y = top + (h*i/5);
+    ctx.beginPath();
+    ctx.moveTo(left,y);
+    ctx.lineTo(width-right,y);
+    ctx.stroke();
+
+    ctx.fillStyle="#94a3b8";
+    ctx.font="12px Segoe UI";
+    ctx.fillText(String(100-i*20),8,y+4);
+  }
+
+  function drawLine(key, color) {
+    if (data.length === 1) return;
+
+    ctx.strokeStyle=color;
+    ctx.lineWidth=3;
+    ctx.beginPath();
+
+    data.forEach((row,i)=>{
+      const x = left + (w * i / Math.max(1,data.length-1));
+      const value = Math.max(minValue,Math.min(maxValue,num(row[key])));
+      const y = top + h - ((value-minValue)/(maxValue-minValue))*h;
+
+      if(i===0) ctx.moveTo(x,y);
+      else ctx.lineTo(x,y);
+    });
+
+    ctx.stroke();
+  }
+
+  drawLine("temperature","#60a5fa");
+  drawLine("smoke","#facc15");
+  drawLine("flame","#fb923c");
+
+  ctx.fillStyle="#94a3b8";
+  ctx.font="11px Segoe UI";
+  ctx.fillText("0",left,height-10);
+  ctx.fillText(String(data.length)+" readings",width-90,height-10);
+}
+
+window.addEventListener("resize", updateChart);
+
+/* =========================================================
+   FIRE ALERT + SOUND
+   ========================================================= */
+function showFireAlert(data) {
+  document.getElementById("alertMessage").textContent =
+    "Temperature: " + data.temperature.toFixed(1) +
+    " °C • Smoke: " + data.smoke.toFixed(0) +
+    "% • Flame: " + data.flame.toFixed(0) + "%";
+
+  document.getElementById("fireModal").classList.add("show");
+
+  if (alarmEnabled) playAlarm();
+}
+
+function closeAlert() {
+  document.getElementById("fireModal").classList.remove("show");
+}
+
+function enableAlarm() {
+  try {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    alarmEnabled = true;
+    document.getElementById("soundBtn").textContent = "🔔 Alarm sound enabled";
+    document.getElementById("soundBtn").classList.add("success");
+    playBeep();
+  } catch(e) {
+    alert("Your browser does not support Web Audio.");
+  }
+}
+
+function playBeep() {
+  if (!audioContext) return;
+
+  const oscillator = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+
+  oscillator.frequency.value = 1000;
+  oscillator.type = "square";
+  gain.gain.value = 0.12;
+
+  oscillator.connect(gain);
+  gain.connect(audioContext.destination);
+
+  oscillator.start();
+  oscillator.stop(audioContext.currentTime + 0.25);
+}
+
+function playAlarm() {
+  if (!alarmEnabled || !audioContext) return;
+
+  let count = 0;
+  const timer = setInterval(()=>{
+    playBeep();
+    count++;
+    if(count >= 5) clearInterval(timer);
+  },350);
+}
+
+document.getElementById("soundBtn").addEventListener("click", enableAlarm);
+
+/* =========================================================
+   CSV EXPORT
+   ========================================================= */
+function downloadCSV() {
+  if (!allData.length) {
+    alert("No readings available.");
+    return;
+  }
+
+  const header = [
+    "Timestamp","Device","Temperature","Humidity",
+    "Smoke","Flame","Status"
+  ];
+
+  const lines = [header.join(",")];
+
+  allData.forEach(row=>{
+    lines.push([
+      csvCell(row.timestamp),
+      csvCell(row.device),
+      row.temperature,
+      row.humidity,
+      row.smoke,
+      row.flame,
+      csvCell(row.status)
+    ].join(","));
+  });
+
+  const blob = new Blob(
+    ["\ufeff" + lines.join("\n")],
+    {type:"text/csv;charset=utf-8;"}
+  );
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+
+  a.href=url;
+  a.download="smart-fire-readings.csv";
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
+
+function csvCell(value) {
+  return '"' + String(value ?? "").replaceAll('"','""') + '"';
+}
+
+document.getElementById("csvBtn").addEventListener("click",downloadCSV);
+
+/* =========================================================
+   CONTROLS
+   ========================================================= */
+document.getElementById("refreshBtn").addEventListener("click",()=>{
+  countdownValue = REFRESH_SECONDS;
+  loadData();
+});
+
+document.getElementById("historyBtn").addEventListener("click",()=>{
+  document.getElementById("historySection")
+    .scrollIntoView({behavior:"smooth"});
+});
+
+function startRefreshLoop() {
+  if (refreshTimer) clearInterval(refreshTimer);
+
+  countdownValue = REFRESH_SECONDS;
+
+  refreshTimer = setInterval(()=>{
+    countdownValue--;
+
+    if(countdownValue <= 0){
+      countdownValue = REFRESH_SECONDS;
+      loadData();
+    }
+
+    document.getElementById("countdown").textContent =
+      "Next refresh: " + countdownValue + "s";
+  },1000);
+}
+
+/* =========================================================
+   START
+   ========================================================= */
+loadData();
+startRefreshLoop();
+</script>
+</body>
+</html>
