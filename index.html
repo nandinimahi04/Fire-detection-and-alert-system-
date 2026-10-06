@@ -251,18 +251,26 @@ th{color:var(--blue)}
 </div>
 
 <script>
+
+/* =========================================================
+   SMART FIRE DETECTION DASHBOARD
+   ========================================================= */
+
+
 /* =========================================================
    CONFIGURATION
    ========================================================= */
 
 const API_URL =
-"https://script.google.com/macros/s/AKfycbzKZQJdE7VaFP_cmuv-86KGVsyP75GsZX953EraOLLi8cN2U01zrllo4YBG7aUePSD1/exec";
+"https://script.google.com/macros/s/AKfycbxeJEkXs9qrKqdiLbWWjnyM0bBFQr-bNflN-5HhwfRrAx3s5obF1U-3bnFG5BDel_W1/exec";
+
 
 const REFRESH_SECONDS = 5;
-const MAX_GRAPH_POINTS = 30;
-const OFFLINE_AFTER_SECONDS = 15;
 
-const CACHE_KEY = "smartFireLastFetchedData";
+const MAX_GRAPH_POINTS = 30;
+
+const CACHE_KEY =
+    "smartFireLastFetchedData";
 
 
 /* =========================================================
@@ -270,161 +278,269 @@ const CACHE_KEY = "smartFireLastFetchedData";
    ========================================================= */
 
 let allData = [];
+
 let previousStatus = null;
+
 let alarmEnabled = false;
+
 let audioContext = null;
-let countdownValue = REFRESH_SECONDS;
+
+let countdownValue =
+    REFRESH_SECONDS;
+
 let refreshTimer = null;
 
 
 /* =========================================================
-   HELPERS
+   HELPER FUNCTIONS
    ========================================================= */
 
-function num(v) {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
+function num(value) {
+
+    const number =
+        Number(value);
+
+    return Number.isFinite(number)
+        ? number
+        : 0;
 }
+
 
 function statusClass(status) {
-    return String(status || "NORMAL").toUpperCase();
+
+    return String(
+        status || "NORMAL"
+    ).trim().toUpperCase();
+
 }
 
+
 function formatTime(value) {
-    if (!value) return "--";
 
-    const d = new Date(value);
+    if (!value) {
+        return "--";
+    }
 
-    if (Number.isNaN(d.getTime())) {
+    const date =
+        new Date(value);
+
+    if (
+        Number.isNaN(
+            date.getTime()
+        )
+    ) {
         return String(value);
     }
 
-    return d.toLocaleString();
+    return date.toLocaleString();
+
 }
 
-function average(arr) {
-    if (!arr.length) return 0;
 
-    return arr.reduce((a, b) => a + b, 0) / arr.length;
+function average(values) {
+
+    if (!values.length) {
+        return 0;
+    }
+
+    return values.reduce(
+        (a, b) => a + b,
+        0
+    ) / values.length;
+
 }
+
 
 function escapeHtml(value) {
-    return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
+
+    return String(
+        value ?? ""
+    )
+    .replaceAll(
+        "&",
+        "&amp;"
+    )
+    .replaceAll(
+        "<",
+        "&lt;"
+    )
+    .replaceAll(
+        ">",
+        "&gt;"
+    )
+    .replaceAll(
+        '"',
+        "&quot;"
+    )
+    .replaceAll(
+        "'",
+        "&#039;"
+    );
+
 }
 
 
 /* =========================================================
-   LOCAL CACHE
+   LOCAL STORAGE CACHE
    ========================================================= */
-
-/*
-   Save the latest successfully fetched data.
-   This stays in the browser even if the API goes offline.
-*/
 
 function saveLastFetchedData(data) {
 
     try {
 
         localStorage.setItem(
+
             CACHE_KEY,
+
             JSON.stringify({
-                savedAt: Date.now(),
-                data: data
+
+                savedAt:
+                    Date.now(),
+
+                data:
+                    data
+
             })
+
+        );
+
+        console.log(
+            "Data saved to browser cache."
         );
 
     } catch (error) {
 
-        console.warn(
-            "Could not save cached data:",
+        console.error(
+            "Cache save error:",
             error
         );
 
     }
+
 }
 
-
-/*
-   Load the last successfully fetched data.
-*/
 
 function loadLastFetchedData() {
 
     try {
 
         const saved =
-            localStorage.getItem(CACHE_KEY);
+            localStorage.getItem(
+                CACHE_KEY
+            );
+
 
         if (!saved) {
+
+            console.log(
+                "No cached data found."
+            );
+
             return false;
+
         }
+
 
         const cached =
             JSON.parse(saved);
 
+
         if (
             !cached ||
-            !Array.isArray(cached.data) ||
+            !Array.isArray(
+                cached.data
+            ) ||
             cached.data.length === 0
         ) {
+
             return false;
+
         }
 
 
-        allData = cached.data.map(row => ({
+        allData =
+            cached.data.map(
+                row => ({
 
-            timestamp: row.timestamp,
+                    timestamp:
+                        row.timestamp,
 
-            device: row.device,
+                    device:
+                        row.device,
 
-            temperature: num(row.temperature),
+                    temperature:
+                        num(
+                            row.temperature
+                        ),
 
-            humidity: num(row.humidity),
+                    humidity:
+                        num(
+                            row.humidity
+                        ),
 
-            smoke: num(row.smoke),
+                    smoke:
+                        num(
+                            row.smoke
+                        ),
 
-            flame: num(row.flame),
+                    flame:
+                        num(
+                            row.flame
+                        ),
 
-            status: statusClass(row.status)
+                    status:
+                        statusClass(
+                            row.status
+                        )
 
-        }));
+                })
+            );
 
 
         const latest =
-            allData[allData.length - 1];
+            allData[
+                allData.length - 1
+            ];
 
 
-        /*
-           Display cached values.
-        */
-
-        updateDashboard(latest);
+        updateDashboard(
+            latest
+        );
 
         updateHistory();
 
         updateStats();
 
+        updateFireCount();
+
         updateChart();
 
 
-        /*
-           Tell the user these are cached values.
-        */
-
         document
-            .getElementById("lastUpdate")
+            .getElementById(
+                "lastUpdate"
+            )
             .textContent =
+
                 "Last fetched: " +
-                formatTime(latest.timestamp) +
+                formatTime(
+                    latest.timestamp
+                ) +
                 " • Device: " +
-                (latest.device || "ESP32") +
+                (
+                    latest.device ||
+                    "ESP32"
+                ) +
                 " • Cached";
+
+
+        showOfflineWithLastData();
+
+
+        console.log(
+            "Cached data restored:",
+            allData
+        );
 
 
         return true;
@@ -432,13 +548,15 @@ function loadLastFetchedData() {
 
     } catch (error) {
 
-        console.warn(
-            "Could not load cached data:",
+        console.error(
+            "Cache restore error:",
             error
         );
 
         return false;
+
     }
+
 }
 
 
@@ -458,40 +576,59 @@ function showOfflineWithLastData() {
         "● OFFLINE • LAST DATA";
 
 
-    badge.classList.add("offline");
+    badge.classList.add(
+        "offline"
+    );
 
-
-    /*
-       IMPORTANT:
-       Do NOT clear the sensor values.
-       The last fetched values remain visible.
-    */
 }
 
 
 /* =========================================================
-   LOAD DATA FROM GOOGLE APPS SCRIPT
+   LOAD DATA FROM GOOGLE SHEETS
    ========================================================= */
 
 async function loadData() {
 
+    console.log(
+        "Fetching Google Sheets data..."
+    );
+
+
     try {
+
+        const url =
+            API_URL +
+            "?action=read&t=" +
+            Date.now();
+
+
+        console.log(
+            "API URL:",
+            url
+        );
+
 
         const response =
             await fetch(
-                API_URL +
-                "?action=read&t=" +
-                Date.now(),
+                url,
                 {
+                    method: "GET",
                     cache: "no-store"
                 }
             );
 
 
+        console.log(
+            "HTTP status:",
+            response.status
+        );
+
+
         if (!response.ok) {
 
             throw new Error(
-                "HTTP " + response.status
+                "HTTP error " +
+                response.status
             );
 
         }
@@ -501,283 +638,323 @@ async function loadData() {
             await response.json();
 
 
-        if (!result.success) {
+        console.log(
+            "RAW API RESPONSE:",
+            result
+        );
+
+
+        if (
+            !result ||
+            result.success !== true
+        ) {
 
             throw new Error(
-                result.error ||
-                "API returned an error"
+
+                result &&
+                result.error
+
+                    ? result.error
+
+                    : "API returned success=false"
+
             );
 
         }
 
 
-        /*
-           Make sure the API returned an array.
-        */
-
-        if (!Array.isArray(result.data)) {
+        if (
+            !Array.isArray(
+                result.data
+            )
+        ) {
 
             throw new Error(
-                "Invalid data received from API"
+                "API data is not an array."
             );
 
         }
 
 
-        /*
-           If API returned no data,
-           don't destroy the existing cached data.
-        */
+        if (
+            result.data.length === 0
+        ) {
 
-        if (result.data.length === 0) {
-
-            showOfflineWithLastData();
-
-            return;
+            throw new Error(
+                "Google Sheet returned no rows."
+            );
 
         }
 
 
-        /*
-           Convert values to numbers.
-        */
+        /* =================================================
+           CONVERT API DATA
+           ================================================= */
 
         allData =
-            result.data.map(row => ({
+            result.data.map(
+                row => ({
 
-                timestamp:
-                    row.timestamp,
+                    timestamp:
+                        row.timestamp,
 
-                device:
-                    row.device,
+                    device:
+                        row.device,
 
-                temperature:
-                    num(row.temperature),
+                    temperature:
+                        num(
+                            row.temperature
+                        ),
 
-                humidity:
-                    num(row.humidity),
+                    humidity:
+                        num(
+                            row.humidity
+                        ),
 
-                smoke:
-                    num(row.smoke),
+                    smoke:
+                        num(
+                            row.smoke
+                        ),
 
-                flame:
-                    num(row.flame),
+                    flame:
+                        num(
+                            row.flame
+                        ),
 
-                status:
-                    statusClass(row.status)
+                    status:
+                        statusClass(
+                            row.status
+                        )
 
-            }));
-
-
-        /*
-           SAVE SUCCESSFUL DATA
-           before doing anything else.
-        */
-
-        saveLastFetchedData(allData);
+                })
+            );
 
 
-        /*
-           Get newest reading.
-        */
+        console.log(
+            "CONVERTED DATA:",
+            allData
+        );
+
+
+        /* =================================================
+           SAVE LAST SUCCESSFUL DATA
+           ================================================= */
+
+        saveLastFetchedData(
+            allData
+        );
+
+
+        /* =================================================
+           GET LATEST READING
+           ================================================= */
 
         const latest =
-            allData[allData.length - 1];
+            allData[
+                allData.length - 1
+            ];
 
 
-        /*
-           Update dashboard.
-        */
+        console.log(
+            "LATEST READING:",
+            latest
+        );
 
-        updateDashboard(latest);
+
+        /* =================================================
+           UPDATE DASHBOARD
+           ================================================= */
+
+        updateDashboard(
+            latest
+        );
 
         updateHistory();
 
         updateStats();
 
+        updateFireCount();
+
         updateChart();
 
 
-        /*
-           Connection is working.
-        */
+        /* =================================================
+           SHOW LIVE
+           ================================================= */
 
         setOffline(false);
+
+
+        console.log(
+            "Dashboard updated successfully."
+        );
 
 
     } catch (error) {
 
         console.error(
-            "Dashboard error:",
+            "GOOGLE SHEETS API ERROR:",
             error
         );
 
 
         /*
            API failed.
-
-           DO NOT replace values with "--".
-
-           First try browser cache.
+           Restore the last successful reading.
         */
 
-        const hasCachedData =
-            allData.length > 0 ||
+        const restored =
             loadLastFetchedData();
 
 
-        if (hasCachedData) {
-
-            showOfflineWithLastData();
-
-        } else {
-
-            /*
-               No previous data exists.
-               Only now show OFFLINE.
-            */
+        if (!restored) {
 
             setOffline(true);
 
         }
 
     }
+
 }
 
 
 /* =========================================================
-   DASHBOARD
+   UPDATE MAIN DASHBOARD
    ========================================================= */
 
 function updateDashboard(data) {
 
-    if (!data) return;
+    if (!data) {
+        return;
+    }
 
 
     const status =
-        statusClass(data.status);
+        statusClass(
+            data.status
+        );
 
 
-    /*
-       SYSTEM STATUS
-    */
+    /* SYSTEM STATUS */
 
-    const statusEl =
+    const statusElement =
         document.getElementById(
             "systemStatus"
         );
 
 
-    statusEl.textContent =
+    statusElement.textContent =
         status;
 
 
-    statusEl.className =
+    statusElement.className =
         "status-value " +
         status.toLowerCase();
 
 
-    /*
-       TEMPERATURE
-    */
+    /* TEMPERATURE */
 
     document.getElementById(
         "temperature"
     ).textContent =
-        data.temperature.toFixed(1) +
+
+        num(
+            data.temperature
+        ).toFixed(1) +
         " °C";
 
 
-    /*
-       HUMIDITY
-    */
+    /* HUMIDITY */
 
     document.getElementById(
         "humidity"
     ).textContent =
-        data.humidity.toFixed(1) +
+
+        num(
+            data.humidity
+        ).toFixed(1) +
         " %";
 
 
-    /*
-       SMOKE
-    */
+    /* SMOKE */
 
     document.getElementById(
         "smoke"
     ).textContent =
-        data.smoke.toFixed(0) +
+
+        num(
+            data.smoke
+        ).toFixed(0) +
         " %";
 
 
-    /*
-       FLAME
-    */
+    /* FLAME */
 
     document.getElementById(
         "flame"
     ).textContent =
-        data.flame.toFixed(0) +
+
+        num(
+            data.flame
+        ).toFixed(0) +
         " %";
 
 
-    /*
-       LAST UPDATE
-    */
+    /* LAST UPDATE */
 
     document.getElementById(
         "lastUpdate"
     ).textContent =
+
         "Last update: " +
-        formatTime(data.timestamp) +
+        formatTime(
+            data.timestamp
+        ) +
         " • Device: " +
-        (data.device || "ESP32");
+        (
+            data.device ||
+            "ESP32"
+        );
 
 
-    /*
-       ICON
-    */
+    /* STATUS ICON */
 
     document.getElementById(
         "statusIcon"
     ).textContent =
+
         status === "FIRE"
             ? "🚨"
+
             : status === "WARNING"
             ? "⚠️"
+
             : "✓";
 
 
-    /*
-       FIRE ALERT
-    */
+    /* FIRE ALERT */
 
     if (
-        previousStatus === null
-    ) {
-
-        previousStatus =
-            status;
-
-    }
-
-    else if (
+        previousStatus !== null &&
         status === "FIRE" &&
         previousStatus !== "FIRE"
     ) {
 
-        showFireAlert(data);
+        showFireAlert(
+            data
+        );
 
     }
 
 
     previousStatus =
         status;
+
 }
 
 
 /* =========================================================
-   CONNECTION
+   CONNECTION STATUS
    ========================================================= */
 
 function setOffline(isOffline) {
@@ -793,6 +970,7 @@ function setOffline(isOffline) {
         badge.textContent =
             "● OFFLINE";
 
+
         badge.classList.add(
             "offline"
         );
@@ -802,16 +980,18 @@ function setOffline(isOffline) {
         badge.textContent =
             "● LIVE";
 
+
         badge.classList.remove(
             "offline"
         );
 
     }
+
 }
 
 
 /* =========================================================
-   HISTORY
+   HISTORY TABLE
    ========================================================= */
 
 function updateHistory() {
@@ -822,48 +1002,95 @@ function updateHistory() {
         );
 
 
+    if (
+        !allData ||
+        allData.length === 0
+    ) {
+
+        body.innerHTML = `
+
+            <tr>
+
+                <td
+                    colspan="6"
+                    class="empty"
+                >
+                    No readings available.
+                </td>
+
+            </tr>
+
+        `;
+
+        return;
+
+    }
+
+
     const rows =
         [...allData].reverse();
 
 
     body.innerHTML =
-        rows.map(row => `
 
-            <tr>
+        rows.map(
+            row => `
 
-                <td>
-                    ${escapeHtml(
-                        formatTime(
-                            row.timestamp
-                        )
-                    )}
-                </td>
+                <tr>
 
-                <td>
-                    ${row.temperature.toFixed(1)} °C
-                </td>
+                    <td>
+                        ${escapeHtml(
+                            formatTime(
+                                row.timestamp
+                            )
+                        )}
+                    </td>
 
-                <td>
-                    ${row.humidity.toFixed(1)}%
-                </td>
+                    <td>
+                        ${num(
+                            row.temperature
+                        ).toFixed(1)} °C
+                    </td>
 
-                <td>
-                    ${row.smoke.toFixed(0)}%
-                </td>
+                    <td>
+                        ${num(
+                            row.humidity
+                        ).toFixed(1)}%
+                    </td>
 
-                <td>
-                    ${row.flame.toFixed(0)}%
-                </td>
+                    <td>
+                        ${num(
+                            row.smoke
+                        ).toFixed(0)}%
+                    </td>
 
-                <td>
-                    <span class="status-pill ${row.status}">
-                        ${row.status}
-                    </span>
-                </td>
+                    <td>
+                        ${num(
+                            row.flame
+                        ).toFixed(0)}%
+                    </td>
 
-            </tr>
+                    <td>
 
-        `).join("");
+                        <span
+                            class="status-pill ${statusClass(
+                                row.status
+                            )}"
+                        >
+                            ${escapeHtml(
+                                statusClass(
+                                    row.status
+                                )
+                            )}
+                        </span>
+
+                    </td>
+
+                </tr>
+
+            `
+        ).join("");
+
 }
 
 
@@ -873,65 +1100,100 @@ function updateHistory() {
 
 function updateStats() {
 
-    if (!allData.length) return;
+    if (
+        !allData ||
+        allData.length === 0
+    ) {
+        return;
+    }
 
 
-    const temps =
+    const temperatures =
         allData.map(
-            x => x.temperature
+            row =>
+                num(
+                    row.temperature
+                )
         );
+
 
     const smokes =
         allData.map(
-            x => x.smoke
+            row =>
+                num(
+                    row.smoke
+                )
         );
+
 
     const flames =
         allData.map(
-            x => x.flame
+            row =>
+                num(
+                    row.flame
+                )
         );
 
 
     document.getElementById(
         "avgTemp"
     ).textContent =
-        average(temps).toFixed(1) +
+
+        average(
+            temperatures
+        ).toFixed(1) +
         " °C";
 
 
     document.getElementById(
         "maxTemp"
     ).textContent =
-        Math.max(...temps).toFixed(1) +
+
+        Math.max(
+            ...temperatures
+        ).toFixed(1) +
         " °C";
 
 
     document.getElementById(
         "avgSmoke"
     ).textContent =
-        average(smokes).toFixed(1) +
+
+        average(
+            smokes
+        ).toFixed(1) +
         " %";
 
 
     document.getElementById(
         "maxSmoke"
     ).textContent =
-        Math.max(...smokes).toFixed(0) +
+
+        Math.max(
+            ...smokes
+        ).toFixed(0) +
         " %";
 
 
     document.getElementById(
         "avgFlame"
     ).textContent =
-        average(flames).toFixed(1) +
+
+        average(
+            flames
+        ).toFixed(1) +
         " %";
 
 
     document.getElementById(
         "maxFlame"
     ).textContent =
-        Math.max(...flames).toFixed(0) +
+
+        Math.max(
+            ...flames
+        ).toFixed(0) +
         " %";
+
 }
 
 
@@ -943,24 +1205,32 @@ function updateFireCount() {
 
     let events = 0;
 
-    let last = null;
+    let lastStatus = null;
 
 
     for (
         const row of allData
     ) {
 
+        const currentStatus =
+            statusClass(
+                row.status
+            );
+
+
         if (
-            row.status === "FIRE" &&
-            last !== "FIRE"
+            currentStatus === "FIRE" &&
+            lastStatus !== "FIRE"
         ) {
 
             events++;
 
         }
 
-        last =
-            row.status;
+
+        lastStatus =
+            currentStatus;
+
     }
 
 
@@ -968,11 +1238,12 @@ function updateFireCount() {
         "fireCount"
     ).textContent =
         events;
+
 }
 
 
 /* =========================================================
-   CANVAS GRAPH
+   GRAPH
    ========================================================= */
 
 function updateChart() {
@@ -981,6 +1252,11 @@ function updateChart() {
         document.getElementById(
             "sensorChart"
         );
+
+
+    if (!canvas) {
+        return;
+    }
 
 
     const rect =
@@ -1000,7 +1276,9 @@ function updateChart() {
 
 
     const ctx =
-        canvas.getContext("2d");
+        canvas.getContext(
+            "2d"
+        );
 
 
     ctx.setTransform(
@@ -1035,7 +1313,9 @@ function updateChart() {
         );
 
 
-    if (!data.length) return;
+    if (!data.length) {
+        return;
+    }
 
 
     const left = 48;
@@ -1047,25 +1327,23 @@ function updateChart() {
     const bottom = 35;
 
 
-    const w =
-        width - left - right;
+    const graphWidth =
+        width -
+        left -
+        right;
 
 
-    const h =
-        height - top - bottom;
+    const graphHeight =
+        height -
+        top -
+        bottom;
 
 
-    const maxValue = 100;
-
-    const minValue = 0;
-
-
-    /*
-       GRID
-    */
+    /* GRID */
 
     ctx.strokeStyle =
         "#334155";
+
 
     ctx.lineWidth = 1;
 
@@ -1077,7 +1355,12 @@ function updateChart() {
     ) {
 
         const y =
-            top + (h * i / 5);
+            top +
+            (
+                graphHeight *
+                i /
+                5
+            );
 
 
         ctx.beginPath();
@@ -1098,46 +1381,57 @@ function updateChart() {
         ctx.fillStyle =
             "#94a3b8";
 
+
         ctx.font =
             "12px Segoe UI";
 
 
         ctx.fillText(
-            String(100 - i * 20),
+            String(
+                100 -
+                i * 20
+            ),
             8,
             y + 4
         );
+
     }
 
 
-    /*
-       DRAW LINE
-    */
+    /* DRAW LINE */
 
     function drawLine(
         key,
         color
     ) {
 
-        if (data.length === 1)
+        if (
+            data.length < 2
+        ) {
             return;
+        }
 
 
         ctx.strokeStyle =
             color;
 
+
         ctx.lineWidth = 3;
+
 
         ctx.beginPath();
 
 
         data.forEach(
-            (row, i) => {
+            (row, index) => {
 
                 const x =
+
                     left +
+
                     (
-                        w * i /
+                        graphWidth *
+                        index /
                         Math.max(
                             1,
                             data.length - 1
@@ -1146,32 +1440,33 @@ function updateChart() {
 
 
                 const value =
+
                     Math.max(
-                        minValue,
+                        0,
                         Math.min(
-                            maxValue,
-                            num(row[key])
+                            100,
+                            num(
+                                row[key]
+                            )
                         )
                     );
 
 
                 const y =
+
                     top +
-                    h -
+                    graphHeight -
+
                     (
-                        (
-                            value -
-                            minValue
-                        ) /
-                        (
-                            maxValue -
-                            minValue
-                        )
+                        value /
+                        100
                     ) *
-                    h;
+                    graphHeight;
 
 
-                if (i === 0) {
+                if (
+                    index === 0
+                ) {
 
                     ctx.moveTo(
                         x,
@@ -1192,6 +1487,7 @@ function updateChart() {
 
 
         ctx.stroke();
+
     }
 
 
@@ -1200,10 +1496,12 @@ function updateChart() {
         "#60a5fa"
     );
 
+
     drawLine(
         "smoke",
         "#facc15"
     );
+
 
     drawLine(
         "flame",
@@ -1213,6 +1511,7 @@ function updateChart() {
 
     ctx.fillStyle =
         "#94a3b8";
+
 
     ctx.font =
         "11px Segoe UI";
@@ -1231,6 +1530,7 @@ function updateChart() {
         width - 90,
         height - 10
     );
+
 }
 
 
@@ -1241,7 +1541,7 @@ window.addEventListener(
 
 
 /* =========================================================
-   FIRE ALERT + SOUND
+   FIRE ALERT
    ========================================================= */
 
 function showFireAlert(data) {
@@ -1251,19 +1551,27 @@ function showFireAlert(data) {
     ).textContent =
 
         "Temperature: " +
-        data.temperature.toFixed(1) +
+        num(
+            data.temperature
+        ).toFixed(1) +
 
         " °C • Smoke: " +
-        data.smoke.toFixed(0) +
+        num(
+            data.smoke
+        ).toFixed(0) +
 
         "% • Flame: " +
-        data.flame.toFixed(0) +
+        num(
+            data.flame
+        ).toFixed(0) +
         "%";
 
 
     document.getElementById(
         "fireModal"
-    ).classList.add("show");
+    ).classList.add(
+        "show"
+    );
 
 
     if (alarmEnabled) {
@@ -1271,6 +1579,7 @@ function showFireAlert(data) {
         playAlarm();
 
     }
+
 }
 
 
@@ -1281,8 +1590,13 @@ function closeAlert() {
     ).classList.remove(
         "show"
     );
+
 }
 
+
+/* =========================================================
+   ALARM
+   ========================================================= */
 
 function enableAlarm() {
 
@@ -1314,20 +1628,22 @@ function enableAlarm() {
         playBeep();
 
 
-    } catch (e) {
+    } catch (error) {
 
         alert(
             "Your browser does not support Web Audio."
         );
 
     }
+
 }
 
 
 function playBeep() {
 
-    if (!audioContext)
+    if (!audioContext) {
         return;
+    }
 
 
     const oscillator =
@@ -1350,7 +1666,10 @@ function playBeep() {
         0.12;
 
 
-    oscillator.connect(gain);
+    oscillator.connect(
+        gain
+    );
+
 
     gain.connect(
         audioContext.destination
@@ -1364,6 +1683,7 @@ function playBeep() {
         audioContext.currentTime +
         0.25
     );
+
 }
 
 
@@ -1381,27 +1701,35 @@ function playAlarm() {
 
 
     const timer =
-        setInterval(() => {
+        setInterval(
+            () => {
 
-            playBeep();
+                playBeep();
 
-            count++;
+                count++;
 
 
-            if (count >= 5) {
+                if (
+                    count >= 5
+                ) {
 
-                clearInterval(
-                    timer
-                );
+                    clearInterval(
+                        timer
+                    );
 
-            }
+                }
 
-        }, 350);
+            },
+            350
+        );
+
 }
 
 
 document
-    .getElementById("soundBtn")
+    .getElementById(
+        "soundBtn"
+    )
     .addEventListener(
         "click",
         enableAlarm
@@ -1409,7 +1737,7 @@ document
 
 
 /* =========================================================
-   CSV EXPORT
+   CSV DOWNLOAD
    ========================================================= */
 
 function csvCell(value) {
@@ -1422,18 +1750,22 @@ function csvCell(value) {
             '""'
         ) +
         '"';
+
 }
 
 
 function downloadCSV() {
 
-    if (!allData.length) {
+    if (
+        !allData.length
+    ) {
 
         alert(
             "No readings available."
         );
 
         return;
+
     }
 
 
@@ -1457,7 +1789,9 @@ function downloadCSV() {
 
 
     const lines = [
+
         header.join(",")
+
     ];
 
 
@@ -1474,13 +1808,21 @@ function downloadCSV() {
                     row.device
                 ),
 
-                row.temperature,
+                num(
+                    row.temperature
+                ),
 
-                row.humidity,
+                num(
+                    row.humidity
+                ),
 
-                row.smoke,
+                num(
+                    row.smoke
+                ),
 
-                row.flame,
+                num(
+                    row.flame
+                ),
 
                 csvCell(
                     row.status
@@ -1511,31 +1853,34 @@ function downloadCSV() {
         );
 
 
-    const a =
+    const link =
         document.createElement(
             "a"
         );
 
 
-    a.href =
+    link.href =
         url;
 
 
-    a.download =
+    link.download =
         "smart-fire-readings.csv";
 
 
-    a.click();
+    link.click();
 
 
     URL.revokeObjectURL(
         url
     );
+
 }
 
 
 document
-    .getElementById("csvBtn")
+    .getElementById(
+        "csvBtn"
+    )
     .addEventListener(
         "click",
         downloadCSV
@@ -1543,11 +1888,13 @@ document
 
 
 /* =========================================================
-   CONTROLS
+   REFRESH BUTTON
    ========================================================= */
 
 document
-    .getElementById("refreshBtn")
+    .getElementById(
+        "refreshBtn"
+    )
     .addEventListener(
         "click",
         () => {
@@ -1561,8 +1908,14 @@ document
     );
 
 
+/* =========================================================
+   HISTORY BUTTON
+   ========================================================= */
+
 document
-    .getElementById("historyBtn")
+    .getElementById(
+        "historyBtn"
+    )
     .addEventListener(
         "click",
         () => {
@@ -1581,7 +1934,7 @@ document
 
 
 /* =========================================================
-   REFRESH LOOP
+   AUTO REFRESH
    ========================================================= */
 
 function startRefreshLoop() {
@@ -1613,6 +1966,7 @@ function startRefreshLoop() {
                     countdownValue =
                         REFRESH_SECONDS;
 
+
                     loadData();
 
                 }
@@ -1623,24 +1977,25 @@ function startRefreshLoop() {
                         "countdown"
                     )
                     .textContent =
-                        "Next refresh: " +
-                        countdownValue +
-                        "s";
+
+                    "Next refresh: " +
+                    countdownValue +
+                    "s";
 
             },
             1000
         );
+
 }
 
 
 /* =========================================================
-   START DASHBOARD
+   START
    ========================================================= */
 
 /*
-   IMPORTANT:
-   First restore the last known values.
-   Then try the live API.
+   First show previously fetched values.
+   Then immediately request fresh values.
 */
 
 loadLastFetchedData();
@@ -1648,6 +2003,7 @@ loadLastFetchedData();
 loadData();
 
 startRefreshLoop();
+
 
 </script>
 </body>
